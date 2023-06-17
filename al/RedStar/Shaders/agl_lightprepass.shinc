@@ -1,0 +1,416 @@
+﻿//------------------------------------------------------------------------------
+/**	@file	light_pre_pass.sh
+ *	@brief	Light Pre-Pass
+ *	@author	Atsushi Asakura
+ */
+//------------------------------------------------------------------------------
+/**
+ * Context 毎の UBO のレイアウト定義
+ */
+#define LPP_UBO_LAYOUT_CONTEXT			\
+	vec4 cLppContext_UBO_PVMtx[ 4 ];	\
+	vec4 cLppContext_UBO_VMtx[ 3 ];		\
+	vec4 cLppContext_UBO_VMtxInv[ 3 ];	\
+	vec4 cLppContext_UBO[ 3 ];			\
+
+#define cLppContext_PVMtx				cLppContext_UBO_PVMtx	// proj view mtx
+#define cLppContext_VMtx				cLppContext_UBO_VMtx	// view mtx
+#define cLppContext_VMtxInv				cLppContext_UBO_VMtxInv	// inv view mtx
+#define cLppContext_Near				cLppContext_UBO[ 0 ].x	// near
+#define cLppContext_Range				cLppContext_UBO[ 0 ].y	// far - near
+#define cLppContext_InvRange			cLppContext_UBO[ 0 ].z	// 1 / range
+#define cLppContext_OneMinusNearDivFar	cLppContext_UBO[ 0 ].w	// 1 - near / far
+#define cLppContext_TanFovyHalf			cLppContext_UBO[ 1 ].xy	// tan( fovy / 2 )
+#define cLppContext_ProjOffset			cLppContext_UBO[ 1 ].zw	// projection offset
+#define cLppContext_DynamicRangeInv		cLppContext_UBO[ 2 ].x	// 1 / ( dynamic range )
+
+//------------------------------------------------------------------------------
+/**
+ * ポイントライトのUBOレイアウト
+ */
+#define LPP_UBO_LAYOUT_POINT_LIGHT 		vec4 cLppPointLight_UBO[ 5 ];
+
+#define cLppPointLight_CenterPosW		cLppPointLight_UBO[ 0 ].xyz	// 中心の World 位置
+#define cLppPointLight_CenterPosV		cLppPointLight_UBO[ 3 ].xyz	// 中心の View 位置
+#define cLppPointLight_CenterPosS		cLppPointLight_UBO[ 4 ].xy	// 中心の画面座標位置 (for specular)
+
+#define cLppPointLight_Radius			cLppPointLight_UBO[ 0 ].w	// 半径
+#define cLppPointLight_InvRadius		cLppPointLight_UBO[ 1 ].w	// 1/radius
+#define cLppPointLight_InvRadius2S		cLppPointLight_UBO[ 4 ].z	// 画面座標系での 1/radius^2 (for specular)
+
+#define cLppPointLight_DampPower		cLppPointLight_UBO[ 3 ].w	// 距離減衰の乗数
+
+#define cLppPointLight_DiffuseColor		cLppPointLight_UBO[ 1 ].rgb	// 
+#define cLppPointLight_SpecularColor	cLppPointLight_UBO[ 2 ].rgb	// (for specular)
+#define cLppPointLight_SpecularSize		cLppPointLight_UBO[ 2 ].w	// スペキュラのサイズ (for specular)
+
+//------------------------------------------------------------------------------
+/**
+ * スポットライトのUBOレイアウト
+ */
+#define LPP_UBO_LAYOUT_SPOT_LIGHT			\
+	vec4 cLppSpotLight_UBO_PVWMtx[ 4 ];		\
+	vec4 cLppSpotLight_UBO_ShadowMtx[ 4 ];	\
+	vec4 cLppSpotLight_UBO[ 7 ];			\
+
+#define cLppSpotLight_PVWMtx			cLppSpotLight_UBO_PVWMtx	//
+#define cLppSpotLight_ShadowMtx			cLppSpotLight_UBO_ShadowMtx	// (for shadow)
+
+#define cLppSpotLight_DiffuseColor		cLppSpotLight_UBO[ 0 ].rgb	// 
+#define cLppSpotLight_SpecularColor		cLppSpotLight_UBO[ 1 ].rgb	// (for specular)
+
+#define cLppSpotLight_LightPosV			cLppSpotLight_UBO[ 2 ].xyz	// 光源のView位置
+#define cLppSpotLight_LightDirV			cLppSpotLight_UBO[ 3 ].xyz	// 光源のView方向
+#define cLppSpotLight_LightPosS			cLppSpotLight_UBO[ 4 ].xy	// 光源の画面座標位置 (for specular)
+
+#define cLppSpotLight_InvRadius			cLppSpotLight_UBO[ 0 ].w	// 1/radius
+#define cLppSpotLight_InvRadius2S		cLppSpotLight_UBO[ 4 ].z	// 画面座標系での 1/radius^2 (for specular)
+#define cLppSpotLight_DistDampPower		cLppSpotLight_UBO[ 2 ].w	// 距離減衰の乗数
+#define cLppSpotLight_AngleDampPower	cLppSpotLight_UBO[ 3 ].w	// 角度減衰の乗数
+
+#define cLppSpotLight_TransformScale				cLppSpotLight_UBO[ 5 ].x	// 頂点変換に使う係数
+#define cLppSpotLight_InvOneMinusCosAngle			cLppSpotLight_UBO[ 5 ].y	// 1 / ( 1 - cos(angle) )
+#define cLppSpotLight_CosAngle_InvOneMinusCosAngle	cLppSpotLight_UBO[ 5 ].z	// cos(angle) / ( 1 - cos(angle) )
+
+#define cLppSpotLight_ShadowMapStep					cLppSpotLight_UBO[ 6 ].xy	// PCF step (for pcf shadow)
+
+//------------------------------------------------------------------------------
+/**
+ * プロジェクションライトのUBOレイアウト
+ */
+#define LPP_UBO_LAYOUT_PROJ_LIGHT				\
+	vec4 cLppProjLight_UBO_PVWMtx[ 4 ];			\
+	vec4 cLppProjLight_UBO_PVWMtxLight[ 4 ];	\
+	vec4 cLppProjLight_UBO_ShadowMtx[ 4 ];		\
+	vec4 cLppProjLight_UBO[ 7 ];				\
+
+#define cLppProjLight_PVWMtx					cLppProjLight_UBO_PVWMtx		// 
+#define cLppProjLight_PVWMtxLight				cLppProjLight_UBO_PVWMtxLight	// ジオメトリの射影行列 (in view coord)
+#define cLppProjLight_ShadowMtx					cLppProjLight_UBO_ShadowMtx		// (for shadow)
+
+#define cLppProjLight_DiffuseColor				cLppProjLight_UBO[ 0 ].rgb		// 
+#define cLppProjLight_DistDampPower				cLppProjLight_UBO[ 0 ].w		// 距離減衰の乗数
+#define cLppProjLight_SpecularColor				cLppProjLight_UBO[ 1 ].rgb		// (for specular)
+
+#define cLppProjLight_LightPosV					cLppProjLight_UBO[ 2 ].xyz		// 光源のView位置 (for proj)
+#define cLppProjLight_LightDirV					cLppProjLight_UBO[ 3 ].xyz		// 光源のView方向 (for ortho)
+
+#define cLppProjLight_LightOnePlusNearDivRange	cLppProjLight_UBO[ 4 ].x		// ジオメトリの 1 + near / ( far - near )
+#define cLppProjLight_LightNearDivFar			cLppProjLight_UBO[ 4 ].y		// ジオメトリの near / far
+#define cLppProjLight_LightInvRange				cLppProjLight_UBO[ 4 ].z		// ジオメトリの 1 / ( far - near )
+
+#define cLppProjLight_ShadowMapStep				cLppProjLight_UBO[ 5 ].xy		// PCF step (for shadow)
+
+#define cLppProjLight_ProjTexOffset				cLppProjLight_UBO[ 6 ].xy		// 投影Texのオフセット (for tex)
+#define cLppProjLight_ProjTexScale				cLppProjLight_UBO[ 6 ].zw		// 投影Texのスケール (for tex)
+
+//------------------------------------------------------------------------------
+/**
+ * 計算につかう情報をまとめた物
+ */
+struct LppRenderData
+{
+	vec3  pos_v, nrm_v;
+	float specular_phong_exp;
+	float roughness;
+	float roughness_intensity;
+};
+
+
+
+//==============================================================================
+/*
+ * 各種ジオメトリの頂点変換など
+ * - 結構特殊な事をやっていたりするので、必ずこれを使ってください
+ */
+
+//------------------------------------------------------------------------------
+/**
+ * ポイントライトの頂点変換
+ */
+void calcVtxTransform_PointLight(
+	out vec4  pos_pvw,		// 変換後
+	in  vec4  pv[ 4 ],		// ProjViewMtx
+	in  vec3  pos_l,		// 各頂点のローカル座標
+	in  vec3  center_pos_w,	// 中心のワールド座標
+	in  float radius		// 半径
+	)
+{
+    vec4 pos_w = vec4( radius * pos_l + center_pos_w, 1.0 );
+	
+    pos_pvw.x = dot( pv[ 0 ], pos_w );
+    pos_pvw.y = dot( pv[ 1 ], pos_w );
+    pos_pvw.z = dot( pv[ 2 ], pos_w );
+    pos_pvw.w = dot( pv[ 3 ], pos_w );
+}
+
+//------------------------------------------------------------------------------
+/**
+ * スポットライトの頂点変換
+ */
+void calcVtxTransform_SpotLight(
+	out vec4  pos_pvw,			// 変換後
+	in  vec4  pvw[ 4 ],			// ProjViewWorldMtx
+	in  vec3  pos_l,			// ローカル座標
+	in  float transform_scale	// 変形係数
+	)
+{
+	vec4 pos = vec4( pos_l, 1.0 );
+	
+    // SpotConeの底面の中心の一点だけ伸ばす（無駄描画を減らすため）
+    pos.y += transform_scale * (pos.y - 0.5) * ((1 - abs(sign(pos.x))) * (1 - abs(sign(pos.z))));
+    
+	pos_pvw.x = dot( pvw[0], pos );
+	pos_pvw.y = dot( pvw[1], pos );
+	pos_pvw.z = dot( pvw[2], pos );
+	pos_pvw.w = dot( pvw[3], pos );
+}
+
+//------------------------------------------------------------------------------
+/**
+ * プロジェクションライトの頂点変換
+ */
+void calcVtxTransform_ProjLight(
+	out vec4  pos_pvw,
+	in  vec4  pvw[ 4 ],				// ProjViewWorldMtx
+	in  vec3  pos_l,				// ローカル座標
+	in  float light_near_div_far,	// ライト形状の Near/Far
+	in  bool  is_frustum			// ライト形状がフラスタムか直方体か
+	)
+{
+	// Cubeが来るので変形
+	vec4 pos;
+	if ( is_frustum ) {
+		// 錐台に変形
+		pos.z = pos_l.z - ( pos_l.z + 0.5 ) * light_near_div_far;
+		pos.x = pos_l.x * (-pos.z + 0.5);
+		pos.y = pos_l.y * (-pos.z + 0.5);
+		pos.w = 1.0;
+	} else {
+		// 平行光源は錐台にしなくていい
+		pos.z = pos_l.z - ( pos_l.z + 0.5 ) * light_near_div_far;
+		pos.x = pos_l.x;
+		pos.y = pos_l.y;
+		pos.w = 1.0;
+	}
+	
+	pos_pvw.x = dot( pvw[0], pos );
+	pos_pvw.y = dot( pvw[1], pos );
+	pos_pvw.z = dot( pvw[2], pos );
+	pos_pvw.w = dot( pvw[3], pos );
+}
+
+//------------------------------------------------------------------------------
+/**
+ * スクリーン座標などを求める
+ */
+void calcScreenCoord(
+	out vec3 screen_coord,	// カメラからZ方向に1.0のXY平面上の対応画素への位置ベクトル
+	out vec2 tex_coord,		// この画素へのテクスチャ座標
+	in  vec4 pos,			// PV変換後の位置
+	in  vec2 tan_fovy_half,	// tan(fovy/2)
+	in  vec2 proj_offset	// 中心位置のオフセット
+	)
+{
+    screen_coord.xy = pos.xy / pos.w; // -0.5 - 0.5
+
+#if defined( AGL_TARGET_GX2 || AGL_TARGET_NVN )
+	
+    screen_coord.y *= -1.0;
+    
+#endif
+
+    tex_coord = screen_coord.xy * 0.5 + 0.5; // 0 - 1.0
+    
+    screen_coord.xy *= -tan_fovy_half.xy;
+    screen_coord.z = 1.0;
+    
+    screen_coord.xy -= proj_offset.xy;
+}
+
+
+
+
+//==============================================================================
+/*
+ * 前準備系の計算
+ */
+
+//------------------------------------------------------------------------------
+/**
+ * View法線を求める
+ */
+void calcNrmV(
+	out vec3      nrm_v,
+	in  sampler2D sampler_normal,			// 法線バッファ
+	in  vec2      tex_coord					// calcScreenCoord() で出てくる tex_coord
+	)
+{
+    nrm_v = 2.0 * texture( sampler_normal, tex_coord ).rgb - vec3( 1.0 );
+}
+
+//------------------------------------------------------------------------------
+/**
+ * View位置を求める
+ */
+void calcPosV(
+	out vec3      pos_v,
+	in  sampler2D sampler_depth,			// normalized linear depth
+	in  vec3      screen_coord,				// calcScreenCoord() で出てくる screen_coord
+	in  vec2      tex_coord,				// calcScreenCoord() で出てくる tex_coord
+	in  float     near,
+	in  float     range
+//	in  float     one_minus_near_div_far,
+	)
+{
+	// pos_v
+    pos_v.z = texture( sampler_depth, tex_coord ).r;
+    
+    // Normalized Linear Depth の場合
+    pos_v.z  = -( pos_v.z * range + near );
+    // 普通の Depth の場合はこちら
+    //data.pos_v.z =  -near / ( 1.0 - pos_v.z * one_minus_near_div_far );
+    
+    pos_v.xy = screen_coord.xy * pos_v.z;
+}
+
+
+
+
+//==============================================================================
+/*
+ * レンダリング
+ */
+
+//------------------------------------------------------------------------------
+/**
+ * 画面上の光源からの距離の割合で減衰項を計算
+ * - ポイントライトの描画範囲一杯に描画したい物に使うと良い
+ */
+void calcScreenDistDamp(
+	out float rate,
+	in  vec2  shade_pos_s,		// 画面上でのシェーディングポイントのXY位置
+	in  vec2  light_pos_s,		// 画面上での光源のXY位置
+	in  float inv_radius2_s		// 画面上での 1/radius^2
+	)
+{
+	// 画面上の光源までの距離を出す
+	vec2  light_dir_s = vec2( shade_pos_s.x - light_pos_s.x, shade_pos_s.y - light_pos_s.y );
+	float dist2       = light_dir_s.x * light_dir_s.x + light_dir_s.y * light_dir_s.y;
+	
+	// dist/radius ≒ (dist/radius)^2 だと思って割合を計算
+	rate = clamp( 1.0 - ( dist2 * inv_radius2_s ), 0, 1 );
+}
+
+
+//------------------------------------------------------------------------------
+/**
+ * ラフネスやスペキュラ乗数のパラメータを計算
+ */
+void calcSpecularParam(
+	out float     roughness,				// 
+	out float     specular_intensity,		// 正規化係数
+	out float     specular_phong_exp,		// 乗数
+	in  sampler2D sampler_normal,
+	in  sampler2D sampler_spec_pow_table,
+	in  vec2      tex_coord
+	)
+{
+	roughness = texture( sampler_normal, tex_coord ).a;
+	
+    vec2 sp = texture( sampler_spec_pow_table, vec2( roughness, 0.0 ) ).rg;
+    specular_phong_exp = sp.r;
+    specular_intensity = sp.g;
+	//specular_intensity = ( specular_phong_exp + 2 ) / ( 2 * 3.141592 );	// ←正しい正規化係数の算出
+}
+
+//------------------------------------------------------------------------------
+/**
+ * 球光源のエリアスペキュラを計算
+ */
+void calcSphereSpecular(
+	out float specular_factor,				// 新たな halfcalc
+	in  float halfcalc,						// 光源の中心で計算した、dot( normal, half_vector )
+	in  float sphere_size_div_light_dist	// 光源の大きさ÷ライトまでの距離
+	)
+{
+	// Blinn-Phong モデルでの球光源スペキュラ
+	// 詳しくは、siggraph2013 の朝倉レポート参照
+	
+    float cos_h = halfcalc;
+    float sin_h = sqrt( 1 - cos_h * cos_h );
+    
+    float sin_s = clamp( sphere_size_div_light_dist, 0, 1 );
+    float cos_s = sqrt( 1 - sin_s * sin_s );
+    
+    cos_s = clamp( cos_s, 0, 1 );
+    
+    float cos_s2 = sqrt( 0.5 + 0.5 * cos_s );
+    cos_s2 = max( cos_s2, cos_h );
+	float sin_s2 = sqrt( 1 - cos_s2 * cos_s2 );
+    
+    specular_factor = clamp( cos_h * cos_s2 + sin_h * sin_s2, 0, 1 );
+}
+
+//------------------------------------------------------------------------------
+/**
+ * シャドウマップの参照
+ */
+void calcDepthShadow(
+	out float           shadow,
+	in  sampler2DShadow sampler_depth_shadow,
+	in  vec4            tex_coord,
+	in  bool            is_pcf,
+	in  vec2            pcf_step
+	)
+{
+	if ( is_pcf ) {
+		pcf_step *= tex_coord.w;
+		shadow = ((
+			textureProj( sampler_depth_shadow, tex_coord + vec4( +pcf_step.x, +pcf_step.y, 0, 0 ) ) +
+			textureProj( sampler_depth_shadow, tex_coord + vec4( -pcf_step.x, +pcf_step.y, 0, 0 ) )) * 0.5 +
+			textureProj( sampler_depth_shadow, tex_coord + vec4( +pcf_step.x, -pcf_step.y, 0, 0 ) ) * 0.5 +
+			textureProj( sampler_depth_shadow, tex_coord + vec4( -pcf_step.x, -pcf_step.y, 0, 0 ) ) * 0.5) * 0.5;
+	}
+	else {
+		shadow = textureProj( sampler_depth_shadow, tex_coord );
+	}
+}
+
+
+
+//==============================================================================
+/*
+ * 出力
+ */
+//------------------------------------------------------------------------------
+/**
+ * 各Variationに合わせて、計算結果を出力
+ */
+#if defined( AGL_FRAGMENT_SHADER )
+void outputFragData_option(
+	in  vec3  diffuse_color,
+	in  float diffuse_intensity,
+	in  vec3  specular_color,
+	in  float specular_intensity,
+	in  bool  is_hdr,
+	in  bool  is_enable_specular
+	)
+{
+	if ( is_hdr ) {
+		if ( is_enable_specular ) {
+			gl_FragData[ 0 ].rgb = diffuse_color.rgb * diffuse_intensity;
+			gl_FragData[ 1 ].rgb = specular_color.rgb * specular_intensity;
+		} else {
+			gl_FragData[ 0 ].rgb = diffuse_color.rgb * diffuse_intensity;
+		}
+	} else {
+		if ( is_enable_specular ) {
+			gl_FragData[ 0 ].rgb = diffuse_color.rgb * diffuse_intensity;
+			gl_FragData[ 0 ].a   = specular_color.r * specular_intensity;
+		} else {
+			gl_FragData[ 0 ] = vec4( diffuse_color.rgb * diffuse_intensity, 0 );
+		}
+	}
+}
+#endif

@@ -1,0 +1,17 @@
+alCalcIndirect.glsl
+alCalcLighting.glsl
+alCalcNormal.glsl
+alDeclareAttribute.glsl
+alDeclareGBuffer.glsl
+alDeclareMdlEnvView.glsl
+alDeclareUniformBlockBinding.glsl
+alDefineSampler.glsl
+alDefineVarying.glsl
+alEnvBrdfUtil.glsl
+alFetchCubeMap.glsl
+alGBufferUtil.glsl
+alGpuRandom.glsl
+alHdrUtil.glsl
+alLightingFunction.glsl
+alMathUtil.glsl
+alWrapLightingFunction.glsl

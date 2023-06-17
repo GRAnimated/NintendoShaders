@@ -1,0 +1,10 @@
+alDeclareMdlEnvView.glsl
+alDeclareSampler.glsl
+alDeclareUniformBlockBinding.glsl
+alDefineSampler.glsl
+alDefineVarying.glsl
+alFetchCubeMap.glsl
+alHdrUtil.glsl
+alMathUtil.glsl
+alPointSprite.glsl
+alPointSprite2D.glsl

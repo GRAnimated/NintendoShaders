@@ -1,0 +1,11 @@
+alDeclareAttribute.glsl
+alDeclareUniformBlockBinding.glsl
+alDefineSampler.glsl
+alDefineVarying.glsl
+alHdrCompose_130.glsl
+alMathUtil.glsl
+alReducedBufferAdjustUtil.glsl
+alScreenUtil_130.glsl
+alVrDistortion.glsl
+alVrDistortionUtil_130.glsl
+alVrRenderLimitUtil.glsl

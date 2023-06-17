@@ -1,0 +1,10 @@
+alDeclareAttribute.glsl
+alDeclareMdlEnvView.glsl
+alDeclareUniformBlockBinding.glsl
+alDefineSampler.glsl
+alDefineVarying.glsl
+alHdrCompose.glsl
+alMathUtil.glsl
+alReducedBufferAdjustUtil.glsl
+alScreenUtil.glsl
+alVrDistortionUtil.glsl

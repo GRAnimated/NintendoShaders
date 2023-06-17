@@ -1,0 +1,12 @@
+agl_lightprepass.shinc
+alCalcNormal.glsl
+alDeclareUniformBlockBinding.glsl
+alDefineVarying.glsl
+alGBufferUtil.glsl
+alLightingFunction.glsl
+alLppCausticsLight.glsl
+alLppDeclareSampler.glsl
+alLppLineLight.glsl
+alLppPointLight.glsl
+alLppSpotLight.glsl
+alMathUtil.glsl

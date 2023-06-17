@@ -1,0 +1,8 @@
+alDeclareMdlEnvView.glsl
+alDeclareUniformBlockBinding.glsl
+alDefineSampler.glsl
+alDefineVarying.glsl
+alFetchCubeMap.glsl
+alHdrUtil.glsl
+alMathUtil.glsl
+alRenderFog.glsl

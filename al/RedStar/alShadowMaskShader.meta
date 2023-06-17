@@ -1,0 +1,7 @@
+alDeclareMdlEnvView.glsl
+alDeclareSampler.glsl
+alDeclareUniformBlockBinding.glsl
+alDefineSampler.glsl
+alDefineVarying.glsl
+alMathUtil.glsl
+alShadowMask.glsl

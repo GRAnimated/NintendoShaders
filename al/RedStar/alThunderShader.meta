@@ -1,0 +1,8 @@
+alDeclareGBuffer.glsl
+alDeclareMdlEnvView.glsl
+alDeclareUniformBlockBinding.glsl
+alDefineVarying.glsl
+alGpuRandom.glsl
+alHdrUtil.glsl
+alMathUtil.glsl
+alRenderThunder.glsl

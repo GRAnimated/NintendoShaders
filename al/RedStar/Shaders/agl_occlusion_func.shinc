@@ -1,0 +1,217 @@
+/**
+ *	@file	agl_occlusion_func.shinc
+ *	@brief	Occlusion Function
+ *	@author	Matsuda Hirokazu
+ */
+ 
+#if defined( AGL_TARGET_GX2 )
+#define BINDING_SAMPLER_NORMAL			layout(binding = 0)
+#define BINDING_SAMPLER_LINEAR_DEPTH	layout(binding = 1)
+#define BINDING_SAMPLER_TABLE			layout(binding = 2)
+#else
+#define BINDING_SAMPLER_NORMAL		
+#define BINDING_SAMPLER_LINEAR_DEPTH
+#define BINDING_SAMPLER_TABLE
+#endif
+
+#define clamp01(val)	clamp((val), 0.0, 1.0)
+
+// スカラー分解の内積計算
+#define dot2(a, b)	((a).x * (b).x + (a).y * (b).y)
+#define dot3(a, b)	(dot2((a), (b)) + (a).z * (b).z)
+#define dot4(a, b)	(dot3((a), (b)) + (a).w * (b).w)
+
+// 平行移動変換を見越す
+#define calcDotVec4Vec3One(a, b)	(dot3((a), (b)) + (a).w)
+vec4 multMtx44Vec3( vec4 mtx[4], vec3 v )
+{
+	vec4 ret;
+	ret.x = calcDotVec4Vec3One( mtx[0], v );
+	ret.y = calcDotVec4Vec3One( mtx[1], v );
+	ret.z = calcDotVec4Vec3One( mtx[2], v );
+	ret.w = calcDotVec4Vec3One( mtx[3], v );
+	return ret;
+}
+
+/**
+ *	スフィアＡＯ
+ */
+struct SphereAo
+{
+	vec4	uVposScale;		// xyz : view pos,  w : ao scale
+	vec4	uR2InvModelR2;	// x : sphere r^^2, y : 1.0/model sphere r^^2
+};
+
+layout(std140) uniform OcclusionEnv
+{
+	float	uConeAngleDepth;	// 角度指定のための3Dテクスチャのデプス
+	float	uMinAttn;			// 影の暗さの限界値
+};
+
+/**
+ *	スフィアＤＯ
+ */
+struct SphereDo
+{
+	vec4	uVposScale;		// xyz : view pos,			w : do scale
+	vec4	uVdirLitR;		// xyz : view dir light,	w : sphere radius
+	vec4	uDoData;		// x : 1.0/range  cone angle も格納してもいいかも
+};
+
+#define INV_RANGE(sph_do)	sph_do.uDoData.x
+
+/**
+ *	計算過程の一時変数
+ */
+struct SphereAoTmp
+{
+	float	r2_div_d2;
+	float	inv_d;
+	float	model_attn;
+	vec3	pixel_to_sphere;
+};
+
+/**
+ *	Sphere AO の計算に必要な情報を計算
+ *	描画モデルに対する減衰をし、エッジを目立たなくする処理込み
+ */
+void calcSphereAoValue(out SphereAoTmp value
+					 , in vec3 sphere_vpos
+					 , in SphereAo sphere_ao
+					 , in vec3 view_pos)
+{
+	value.pixel_to_sphere	= sphere_vpos - view_pos;
+	float dist_sqr			= dot(value.pixel_to_sphere, value.pixel_to_sphere);
+	value.inv_d				= inversesqrt(dist_sqr);
+	value.model_attn = clamp01(1.0 - dist_sqr * sphere_ao.uR2InvModelR2.y);
+
+	value.r2_div_d2 = sphere_ao.uR2InvModelR2.x * value.inv_d * value.inv_d;
+}
+
+/**
+ *	スフィア AO のコア計算
+ */
+float calcSphereAoCore(in vec3		sphere_vpos
+					 , in SphereAo	sphere_ao
+					 , in vec3		view_pos
+					 , in vec3		view_nrm)
+{
+	SphereAoTmp value;
+	calcSphereAoValue(value
+					, sphere_vpos
+					, sphere_ao
+					, view_pos);
+	float cos = dot(view_nrm, value.pixel_to_sphere) * value.inv_d;
+	// bl(r,d) = 0.5 * cos α_s * (r/d)^2
+	return max(1.0 - clamp01(cos
+						* value.r2_div_d2
+						* value.model_attn
+						* sphere_ao.uVposScale.w)
+				, uMinAttn);
+}
+
+/**
+ *	散乱用スフィアＡＯは、ひとまず実装しない
+ */
+
+/**
+ *	スフィア AO の計算
+ */
+float calcSphereAo(in SphereAo	sphere_ao
+				 , in vec3		view_pos
+				 , in vec3		view_nrm)
+{
+	return calcSphereAoCore(sphere_ao.uVposScale.xyz
+						  , sphere_ao
+						  , view_pos
+						  , view_nrm);
+}
+
+#if 0
+/**
+ *	決め打ちスムースステップ
+ */
+void smoothStepDo(out float ret, in float x)
+{
+	const float edge0 = -0.98;
+	const float edge1 =  0.0;
+	const float inv_range = 1.0/(edge1 - edge0);
+	const float edge0_inv_range = edge0*inv_range;
+
+//	float t = clamp01((x - edge0) * inv_range);
+	float t = clamp01(x*inv_range - edge0_inv_range);
+
+	ret = t*t*(3.0 - 2.0*t);
+}
+
+/**
+ *	スフィアＤＯの計算
+ */
+void calcSphereDo(out float		bl
+				, in sampler3D	table
+				, in SphereDo	sphere
+				, in vec3		view_pos
+				, in vec3		view_nrm)
+{
+	vec3 pixel_to_sphere = sphere.uVposScale.xyz - view_pos;
+	float len2 = dot(pixel_to_sphere, pixel_to_sphere);
+	float inv_len = inversesqrt(len2);
+
+	// 正規化距離減衰
+	float falloff = clamp01(1.0 - len2*inv_len*INV_RANGE(sphere));
+	falloff = clamp01(falloff * falloff);
+
+	// テーブルから引っ張ってくるときのテクスチャ座標を求める
+	// vec3(cosΦ, sinθ, depth) となる
+	float sin_theta = sphere.uVdirLitR.w * inv_len;
+	float cos_phai  = inv_len * dot(pixel_to_sphere, sphere.uVdirLitR.xyz);
+
+	bl = falloff * sphere.uVposScale.w * texture(table
+												, vec3(cos_phai
+													, sin_theta
+													, uConeAngleDepth)).r;
+	float smooth_value;
+	float value = inv_len * dot(pixel_to_sphere, view_nrm);
+	smoothStepDo(smooth_value, value);
+	bl = min(bl * smooth_value, 1.0 - uMinAttn);
+}
+#else
+/**
+ *	決め打ちスムースステップ
+ */
+#define smoothStepDo(ret, x)							\
+{														\
+	const float edge0 = -0.98;							\
+	const float edge1 =  0.0;							\
+	const float inv_range = 1.0/(edge1 - edge0);			\
+	const float edge0_inv_range = edge0*inv_range;		\
+	float t = clamp01(x*inv_range - edge0_inv_range);	\
+	ret = t*t*(3.0 - 2.0*t);								\
+}
+
+/**
+ *	スフィアＤＯの計算
+ */
+#define calcSphereDo(bl, table, sphere, view_pos, view_nrm)						\
+{																				\
+	vec3 pixel_to_sphere = sphere.uVposScale.xyz - view_pos;						\
+	float len2 = dot(pixel_to_sphere, pixel_to_sphere);							\
+	float inv_len = inversesqrt(len2);											\
+																				\
+	float falloff = clamp01(1.0 - len2*inv_len*INV_RANGE(sphere));				\
+	falloff = clamp01(falloff * falloff);										\
+																				\
+	float sin_theta = sphere.uVdirLitR.w * inv_len;								\
+	float cos_phai  = inv_len * dot(pixel_to_sphere, sphere.uVdirLitR.xyz);		\
+																				\
+	bl = falloff * sphere.uVposScale.w * texture(table							\
+												, vec3(cos_phai					\
+													, sin_theta					\
+													, uConeAngleDepth)).r;		\
+	float smooth_value;															\
+	float value = inv_len * dot(pixel_to_sphere, view_nrm);						\
+	smoothStepDo(smooth_value, value);											\
+	bl = min(bl * smooth_value, 1.0 - uMinAttn);									\
+}
+
+#endif

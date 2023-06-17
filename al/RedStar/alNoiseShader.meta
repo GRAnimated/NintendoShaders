@@ -1,0 +1,16 @@
+alCalcFullScreenTriangle.glsl
+alDeclareMdlEnvView.glsl
+alDeclareUniformBlockBinding.glsl
+alDefineVarying.glsl
+alGpuRandom.glsl
+alMathUtil.glsl
+alNoiseCaustics.glsl
+alNoiseCloudLikeFbm.glsl
+alNoiseCurl.glsl
+alNoiseGem.glsl
+alNoisePerlin.glsl
+alNoisePerlinUtil.glsl
+alNoiseSimple.glsl
+alNoiseUtil.glsl
+alNoiseWorley.glsl
+alNoiseWorleyUtil.glsl

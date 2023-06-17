@@ -1,0 +1,9 @@
+alComposeLightMap.glsl
+alCubeMapDrawUtil.glsl
+alDeclareUniformBlockBinding.glsl
+alFetchCubeMap.glsl
+alHdrUtil.glsl
+alLightingFunction.glsl
+alLightMap.glsl
+alLightMapNormal.glsl
+alMathUtil.glsl
